@@ -1,0 +1,30 @@
+services:
+  kali-ttyd:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    image: kali-ttyd:latest
+    container_name: kali-ttyd-local
+    network_mode: bridge
+    ports:
+      - "7681:7681"  # ttyd port
+    environment:
+      - TZ=UTC
+      - APP_ENV=development
+      - APP_DEBUG=true
+      - HOST_PORT=7681
+    entrypoint: ["/usr/local/bin/entry_point.sh"]
+    user: root
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: 1
+    labels:
+      - "com.nanocorp.service=kali-ttyd"
+      - "com.nanocorp.type=learning"
+      - "com.nanocorp.version=1.0"
+      - "com.nanocorp.description=Kali Linux with ttyd Web Terminal"
+      

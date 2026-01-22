@@ -1,0 +1,77 @@
+FROM kalilinux/kali-rolling
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TERM=xterm-256color \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Reduce image size by excluding docs
+RUN echo 'path-exclude /usr/share/doc/*\n\
+path-exclude /usr/share/man/*\n\
+path-exclude /usr/share/groff/*\n\
+path-exclude /usr/share/info/*\n\
+path-exclude /usr/share/lintian/*\n\
+path-exclude /usr/share/linda/*' > /etc/dpkg/dpkg.cfg.d/01_nodoc
+
+# Core tooling
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      locales sudo net-tools curl wget nano git file less coreutils \
+      nmap netcat-traditional tcpdump dnsutils iputils-ping traceroute whois iproute2 \
+      python3-pip python3-setuptools python3-six \
+      strace ltrace binutils gdb \
+      vim-common bsdmainutils lsof libcap2-bin unzip default-jre \
+      build-essential cmake libjson-c-dev libwebsockets-dev; \
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen; \
+    locale-gen; \
+    rm -rf /var/lib/apt/lists/*
+
+# Install optional tools (continue even if some fail)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      tshark nikto whatweb wafw00f sslscan radare2 apktool yara 2>/dev/null || true && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install ttyd (web-based terminal)
+RUN set -eux; \
+    git clone --depth 1 https://github.com/tsl0922/ttyd.git /tmp/ttyd && \
+    cd /tmp/ttyd && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make && \
+    make install && \
+    rm -rf /tmp/ttyd
+
+# Python ecosystem
+RUN pip3 install --break-system-packages --no-cache-dir \
+      requests beautifulsoup4 paramiko scapy python-nmap dnspython colorama \
+      pwntools volatility3 binwalk
+
+# User setup
+RUN useradd -m -s /bin/bash kali && \
+    echo 'kali:kali' | chpasswd && \
+    usermod -aG sudo kali && \
+    echo 'kali ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
+    touch /home/kali/.hushlogin
+
+# GDB tooling
+RUN git clone --depth 1 https://github.com/longld/peda.git /opt/peda && \
+    wget -q -O /opt/gef.py https://github.com/hugsy/gef/raw/main/gef.py && \
+    echo "source /opt/gef.py" > /home/kali/.gdbinit && \
+    chown kali:kali /home/kali/.gdbinit
+
+# Copy entrypoint script
+COPY entry_point.sh /usr/local/bin/entry_point.sh
+RUN chmod +x /usr/local/bin/entry_point.sh
+
+# Capabilities
+RUN set -eux; \
+    setcap cap_net_raw+ep /usr/bin/ping || true; \
+    setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap || true; \
+    setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tcpdump || true
+
+WORKDIR /home/kali
+USER kali
+
+CMD ["/bin/bash"]

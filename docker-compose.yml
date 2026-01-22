@@ -1,0 +1,30 @@
+services:
+
+  target:
+    image: nginx:alpine
+    container_name: cybersecurity-target
+    command: >
+      sh -c "
+      apk add --no-cache busybox-extras openssl &&
+      nc -lk -p 9999 &
+      nginx -g 'daemon off;'
+      "
+    ports:
+      - "8080:80"
+
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile.scanner
+    container_name: cybersecurity-scanner
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    privileged: false
+
+networks:
+  default:
+    driver: bridge
