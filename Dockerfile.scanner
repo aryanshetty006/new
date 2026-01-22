@@ -4,14 +4,18 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       build-essential cmake git wget \
       libjson-c-dev libwebsockets-dev libuv1-dev \
-      python3-pip python3-setuptools && \
+      python3-pip python3-setuptools binutils && \
     git clone --depth 1 https://github.com/tsl0922/ttyd.git /tmp/ttyd && \
     cd /tmp/ttyd && mkdir build && cd build && \
     cmake .. && make && make install && \
+    strip --strip-unneeded /usr/local/bin/ttyd && \
     cd / && rm -rf /tmp/ttyd && \
     pip3 install --break-system-packages --no-cache-dir \
       requests beautifulsoup4 paramiko scapy python-nmap dnspython colorama \
       pwntools volatility3 binwalk && \
+    find /usr/local/lib/python3.* -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.* -name "*.pyc" -delete 2>/dev/null || true && \
+    find /usr/local/lib/python3.* -name "*.pyo" -delete 2>/dev/null || true && \
     mkdir -p /app/bin /app/opt && \
     cp /usr/local/bin/ttyd /app/bin/ && \
     git clone --depth 1 https://github.com/longld/peda.git /app/opt/peda && \
@@ -19,17 +23,23 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache /root/.wget-hsts
 
 FROM alpine:latest
-ENV TERM=xterm-256color LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+ENV TERM=xterm-256color LANG=C LC_ALL=C
 RUN apk add --no-cache \
-      bash sudo curl wget git file less coreutils \
+      bash sudo curl \
       nmap nmap-scripts netcat-openbsd tcpdump \
       iputils-ping traceroute bind-tools \
       python3 py3-pip py3-setuptools \
-      gdb lsof libcap unzip openjdk17-jre \
+      gdb lsof libcap unzip openjdk17-jre-headless \
       iproute2 procps net-tools \
       libstdc++ libgcc && \
     pip3 install --break-system-packages --no-cache-dir \
       requests beautifulsoup4 paramiko scapy python-nmap dnspython colorama || true && \
+    find /usr/lib/python3.* -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/lib/python3.* -name "*.pyc" -delete 2>/dev/null || true && \
+    find /usr/lib/python3.* -name "*.pyo" -delete 2>/dev/null || true && \
+    find /usr -name "*.a" -delete 2>/dev/null || true && \
+    find /usr -type d -name test -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr -type d -name tests -exec rm -rf {} + 2>/dev/null || true && \
     adduser -D -s /bin/bash kali && \
     echo 'kali:kali' | chpasswd && \
     adduser kali wheel && \
@@ -40,7 +50,7 @@ RUN apk add --no-cache \
     setcap cap_net_raw+ep /usr/bin/ping 2>/dev/null || true && \
     setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap 2>/dev/null || true && \
     setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tcpdump 2>/dev/null || true && \
-    rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /usr/share/man /usr/share/doc /usr/share/info && \
+    rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /usr/share/man /usr/share/doc /usr/share/info /usr/share/locale && \
     find /usr -name "*.md" -delete 2>/dev/null || true && \
     find /usr -name "*.txt" -type f ! -path "*/share/*" -delete 2>/dev/null || true
 COPY --from=builder /app /app
