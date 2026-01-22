@@ -1,41 +1,24 @@
-FROM kalilinux/kali-rolling
+# Build stage
+FROM debian:stable-slim AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TERM=xterm-256color \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Reduce image size by excluding docs
-RUN echo 'path-exclude /usr/share/doc/*\n\
-path-exclude /usr/share/man/*\n\
-path-exclude /usr/share/groff/*\n\
-path-exclude /usr/share/info/*\n\
-path-exclude /usr/share/lintian/*\n\
-path-exclude /usr/share/linda/*' > /etc/dpkg/dpkg.cfg.d/01_nodoc
-
-# Core tooling
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-      locales sudo net-tools curl wget nano git file less coreutils \
-      nmap netcat-traditional tcpdump dnsutils iputils-ping traceroute whois iproute2 \
-      python3-pip python3-setuptools python3-six \
-      strace ltrace binutils gdb \
-      vim-common bsdmainutils lsof libcap2-bin unzip default-jre \
-      build-essential cmake libjson-c-dev libwebsockets-dev; \
-    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen; \
-    locale-gen; \
-    rm -rf /var/lib/apt/lists/*
-
-# Install optional tools (continue even if some fail)
+# Install build dependencies and tools
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      tshark nikto whatweb wafw00f sslscan radare2 apktool yara 2>/dev/null || true && \
+      build-essential cmake git wget curl \
+      libjson-c-dev libwebsockets-dev libuv1-dev \
+      python3-pip python3-setuptools \
+      locales && \
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen && \
+    locale-gen && \
     rm -rf /var/lib/apt/lists/*
 
-# Install ttyd (web-based terminal)
-RUN set -eux; \
-    git clone --depth 1 https://github.com/tsl0922/ttyd.git /tmp/ttyd && \
+# Build ttyd
+RUN git clone --depth 1 https://github.com/tsl0922/ttyd.git /tmp/ttyd && \
     cd /tmp/ttyd && \
     mkdir build && cd build && \
     cmake .. && \
@@ -43,33 +26,65 @@ RUN set -eux; \
     make install && \
     rm -rf /tmp/ttyd
 
-# Python ecosystem
+# Install Python packages
 RUN pip3 install --break-system-packages --no-cache-dir \
       requests beautifulsoup4 paramiko scapy python-nmap dnspython colorama \
       pwntools volatility3 binwalk
 
-# User setup
-RUN useradd -m -s /bin/bash kali && \
-    echo 'kali:kali' | chpasswd && \
-    usermod -aG sudo kali && \
-    echo 'kali ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
-    touch /home/kali/.hushlogin
+# Download GDB tools
+RUN mkdir -p /opt && \
+    git clone --depth 1 https://github.com/longld/peda.git /opt/peda && \
+    wget -q -O /opt/gef.py https://github.com/hugsy/gef/raw/main/gef.py
 
-# GDB tooling
-RUN git clone --depth 1 https://github.com/longld/peda.git /opt/peda && \
-    wget -q -O /opt/gef.py https://github.com/hugsy/gef/raw/main/gef.py && \
-    echo "source /opt/gef.py" > /home/kali/.gdbinit && \
-    chown kali:kali /home/kali/.gdbinit
+# Runtime stage
+FROM alpine:latest
+
+ENV TERM=xterm-256color \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Install runtime dependencies and security tools
+RUN apk add --no-cache \
+      bash sudo curl wget nano git file less coreutils \
+      nmap nmap-scripts netcat-openbsd tcpdump \
+      iputils-ping traceroute bind-tools \
+      python3 py3-pip py3-setuptools \
+      strace binutils gdb \
+      vim lsof libcap unzip openjdk17-jre \
+      iproute2 procps net-tools \
+      libstdc++ libgcc && \
+    rm -rf /var/cache/apk/*
+
+# Copy built binaries and tools from builder
+COPY --from=builder /usr/local/bin/ttyd /usr/local/bin/ttyd
+COPY --from=builder /opt/peda /opt/peda
+COPY --from=builder /opt/gef.py /opt/gef.py
+
+# Install Python packages in Alpine
+# Note: Some packages may need to be reinstalled for Alpine compatibility
+RUN pip3 install --break-system-packages --no-cache-dir \
+      requests beautifulsoup4 paramiko scapy python-nmap dnspython colorama || true
+
+# User setup
+RUN adduser -D -s /bin/bash kali && \
+    echo 'kali:kali' | chpasswd && \
+    adduser kali wheel && \
+    echo '%wheel ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
+    touch /home/kali/.hushlogin && \
+    mkdir -p /home/kali/.local/bin
+
+# Setup GDB
+RUN echo "source /opt/gef.py" > /home/kali/.gdbinit && \
+    chown -R kali:kali /home/kali /opt/peda /opt/gef.py
 
 # Copy entrypoint script
 COPY entry_point.sh /usr/local/bin/entry_point.sh
 RUN chmod +x /usr/local/bin/entry_point.sh
 
-# Capabilities
-RUN set -eux; \
-    setcap cap_net_raw+ep /usr/bin/ping || true; \
-    setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap || true; \
-    setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tcpdump || true
+# Set capabilities (Alpine uses different paths)
+RUN setcap cap_net_raw+ep /usr/bin/ping 2>/dev/null || true && \
+    setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap 2>/dev/null || true && \
+    setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tcpdump 2>/dev/null || true
 
 WORKDIR /home/kali
 USER kali
