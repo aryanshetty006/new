@@ -20,7 +20,8 @@ RUN apt-get update && \
     cp /usr/local/bin/ttyd /app/bin/ && \
     git clone --depth 1 https://github.com/longld/peda.git /app/opt/peda && \
     wget -q -O /app/opt/gef.py https://github.com/hugsy/gef/raw/main/gef.py && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache /root/.wget-hsts
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache /root/.wget-hsts \
+      /usr/share/man /usr/share/doc /usr/share/info /usr/share/locale
 
 FROM alpine:latest
 ENV TERM=xterm-256color LANG=C LC_ALL=C
